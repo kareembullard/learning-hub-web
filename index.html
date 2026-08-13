@@ -92,6 +92,7 @@
   .edit-row { display: flex; gap: .6rem; flex-wrap: wrap; }
   .edit-row .edit-field { flex: 1; min-width: 140px; }
   .edit-actions { display: flex; gap: .6rem; margin-top: 1rem; }
+  .checklist { max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); padding: .5rem .7rem; background: var(--bg); }
   .edit-field label.checkbox-label { display: flex; align-items: center; gap: .5rem; text-transform: none; font-size: .88rem; color: var(--text); }
   .edit-field input[type=checkbox] { width: auto; }
 </style>
@@ -225,13 +226,14 @@
 
 <script>
 const STORAGE_KEY = "learning-hub-web:data";
-const TYPES = ["podcast", "youtube", "course", "book"];
+const TYPES = ["podcast", "youtube", "course", "book", "article"];
 const STATUSES = ["to-watch", "in-progress", "completed"];
 const TYPE_META = {
   podcast: { label: "Podcast", icon: "🎙️", source: "Spotify Podcasts" },
   youtube: { label: "YouTube", icon: "▶️", source: "YouTube Channels" },
   course: { label: "Course", icon: "🎓", source: "LinkedIn Learning" },
   book: { label: "Book", icon: "📖", source: "Speechify Books" },
+  article: { label: "Article", icon: "📰", source: "RSS Feed Reader" },
 };
 const STATUS_LABEL = { "to-watch": "To Watch", "in-progress": "In Progress", "completed": "Completed" };
 
@@ -445,6 +447,97 @@ function renderDashboard() {
   });
 }
 
+// --- Cross-app link: rss-feed-reader-web and learning-hub-web are both static GitHub Pages
+// apps under kareembullard.github.io, so they share one localStorage origin. If you've opened
+// rss-feed-reader-web in this browser, its saved articles are readable here directly. ---
+function readLinkedRss() {
+  try {
+    const raw = localStorage.getItem("rss-feed-reader-web:data");
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.articles)) return null;
+    return data;
+  } catch { return null; }
+}
+function rssFeedName(rssData, feedId) {
+  const feed = (rssData.feeds || []).find(f => f.id === feedId);
+  return feed ? feed.name : "RSS";
+}
+// Mark an imported article's source as read back in rss-feed-reader-web's own data.
+function markSourceArticleRead(articleId) {
+  try {
+    const raw = localStorage.getItem("rss-feed-reader-web:data");
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    const article = (data.articles || []).find(a => a.id === articleId);
+    if (article) { article.isRead = true; localStorage.setItem("rss-feed-reader-web:data", JSON.stringify(data)); }
+  } catch {}
+}
+
+function openRssImportPicker() {
+  app.innerHTML = "";
+  const h2 = document.createElement("h2"); h2.textContent = "Import from RSS Reader";
+  app.appendChild(h2);
+
+  const rssData = readLinkedRss();
+  if (!rssData) {
+    app.appendChild(emptyMsg("RSS Feed Reader's data hasn't loaded in this browser yet — open rss-feed-reader-web once (same browser) and come back."));
+    const backBtn = document.createElement("button");
+    backBtn.className = "btn"; backBtn.textContent = "← Back to Library";
+    backBtn.addEventListener("click", () => goRoute("library"));
+    app.appendChild(backBtn);
+    return;
+  }
+
+  const alreadyImported = new Set(state.items.filter(i => i.sourceArticleId).map(i => i.sourceArticleId));
+  const importable = rssData.articles.filter(a => a.isSaved && !alreadyImported.has(a.id));
+
+  if (!importable.length) {
+    app.appendChild(emptyMsg("No new saved articles to import — save some in RSS Feed Reader first, or everything saved is already in your library."));
+  }
+
+  const selected = new Set();
+  const panel = document.createElement("div"); panel.className = "edit-panel";
+  const list = document.createElement("div"); list.className = "checklist";
+  importable.forEach(a => {
+    const label = document.createElement("label");
+    label.style.display = "block"; label.style.padding = ".2rem 0"; label.style.fontSize = ".85rem";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.addEventListener("change", () => { if (cb.checked) selected.add(a.id); else selected.delete(a.id); });
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(" " + a.title + " — " + rssFeedName(rssData, a.feedId) + (a.isRead ? " (already read)" : "")));
+    list.appendChild(label);
+  });
+  panel.appendChild(list);
+
+  const actions = document.createElement("div"); actions.className = "edit-actions";
+  const importSelectedBtn = document.createElement("button");
+  importSelectedBtn.className = "btn primary"; importSelectedBtn.textContent = "Import selected";
+  importSelectedBtn.addEventListener("click", () => {
+    importable.filter(a => selected.has(a.id)).forEach(a => {
+      state.items.push({
+        id: nextId(),
+        type: "article",
+        title: a.title,
+        creator: rssFeedName(rssData, a.feedId),
+        duration: a.readTime || "—",
+        status: a.isRead ? "completed" : "to-watch",
+        progress: a.isRead ? 100 : 0,
+        sourceArticleId: a.id,
+      });
+    });
+    saveState(); goRoute("library");
+  });
+  actions.appendChild(importSelectedBtn);
+  const cancelBtn = document.createElement("button");
+  cancelBtn.className = "btn"; cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", () => goRoute("library"));
+  actions.appendChild(cancelBtn);
+  panel.appendChild(actions);
+  app.appendChild(panel);
+}
+
 // ---------- Library ----------
 const libraryFilterState = { type: new Set(), status: new Set(), query: "" };
 function renderLibrary() {
@@ -465,6 +558,12 @@ function renderLibrary() {
   addBtn.className = "btn primary"; addBtn.textContent = "+ Add Item";
   addBtn.addEventListener("click", () => openItemForm(null));
   app.appendChild(addBtn);
+
+  const importBtn = document.createElement("button");
+  importBtn.className = "btn"; importBtn.textContent = "Import from RSS Reader";
+  importBtn.style.marginLeft = ".5rem";
+  importBtn.addEventListener("click", () => openRssImportPicker());
+  app.appendChild(importBtn);
 
   const ul = document.createElement("ul"); ul.className = "entities"; ul.style.marginTop = "1rem";
   app.appendChild(ul);
@@ -531,6 +630,9 @@ function openItemForm(id) {
     if (status === "to-watch") progress = 0;
     if (existing) { Object.assign(existing, { title, creator, duration, type, status, progress }); }
     else { state.items.push({ id: nextId(), title, creator, duration, type, status, progress }); }
+    if (existing && existing.sourceArticleId && status === "completed") {
+      markSourceArticleRead(existing.sourceArticleId);
+    }
     saveState(); goRoute("library");
   });
   const cancelBtn = document.createElement("button"); cancelBtn.className = "btn"; cancelBtn.textContent = "Cancel";
