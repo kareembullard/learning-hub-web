@@ -58,6 +58,7 @@
 
   ul.entities { list-style: none; margin: 0; padding: 0; }
   li.entity { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: .65rem .9rem; margin-bottom: .5rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .4rem; cursor: pointer; }
+  li.entity:hover { border-color: var(--accent); }
   li.entity .left { display: flex; gap: .6rem; align-items: center; flex: 1; min-width: 220px; }
   li.entity .body { flex: 1; min-width: 180px; }
   li.entity .main { font-weight: 600; font-size: .92rem; }
@@ -390,11 +391,6 @@ function itemRow(item) {
   left.querySelector(".meta").insertAdjacentHTML("beforeend", tag(STATUS_LABEL[item.status] || item.status, "status-" + item.status));
   left.querySelector(".item-bar").appendChild(barRow("", item.progress, 100, `${item.progress}%`));
   li.appendChild(left);
-  const actions = document.createElement("div"); actions.className = "actions";
-  const editBtn = document.createElement("button"); editBtn.className = "btn small"; editBtn.textContent = "Edit";
-  editBtn.addEventListener("click", (e) => { e.stopPropagation(); openItemForm(item.id); });
-  actions.appendChild(editBtn);
-  li.appendChild(actions);
   return li;
 }
 
